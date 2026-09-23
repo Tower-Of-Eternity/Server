@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * [Domain Layer] Thực thể Người chơi (Player Entity) đại diện cho Authoritative State trên Server.
- * Server giữ quyền quyết định tuyệt đối về tọa độ (x, y), trạng thái, hướng Dash và hồi chiêu của Player.
+ * Server giữ quyền quyết định tuyệt đối về tọa độ (x, y), trạng thái, hướng di chuyển và hồi chiêu của Player.
  */
 @Data
 @Builder
@@ -23,6 +23,16 @@ public class Player {
     
     @Builder.Default
     private long lastActiveTime = System.currentTimeMillis();
+
+    // --- Continuous Movement State (Duy trì di chuyển liên tục, chống giật do lag/jitter) ---
+    @Builder.Default
+    private float moveDirX = 0f;
+
+    @Builder.Default
+    private float moveDirY = 0f;
+
+    @Builder.Default
+    private boolean isSprinting = false;
 
     // --- Authoritative Dash State (Server kiểm soát, khóa hướng khi lướt, chống hack lướt vô tận) ---
     @Builder.Default
