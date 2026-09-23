@@ -15,9 +15,12 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -26,8 +29,8 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * [Game Layer] Trái tim của Game Server: 20Hz Game Loop (Vòng lặp mô phỏng thế giới).
  * Mỗi 50ms chạy đúng 1 lần:
- * 1. Gom Input từ người chơi (Collect Inputs).
- * 2. Cập nhật các hệ thống mô phỏng thế giới (Systems Simulation).
+ * 1. Xử lý các hành động đơn lẻ (Discrete Actions: Dash, Jump) từ hàng đợi pendingActions (không bị ghi đè).
+ * 2. Cập nhật Continuous Input (WASD) từ latestContinuousInputs.
  * 3. Chụp và phát sóng trạng thái toàn cảnh thế giới (Broadcast World Snapshot).
  */
 @Slf4j
@@ -43,7 +46,10 @@ public class GameLoop {
     private final SnapshotBroadcaster snapshotBroadcaster;
 
     private final AtomicLong currentTick = new AtomicLong(0);
-    private final Map<String, MoveCommandPacket> latestInputs = new ConcurrentHashMap<>();
+
+    // Tách riêng luồng Continuous Input và Discrete Actions
+    private final Map<String, MoveCommandPacket> latestContinuousInputs = new ConcurrentHashMap<>();
+    private final ConcurrentLinkedQueue<MoveCommandPacket> pendingActions = new ConcurrentLinkedQueue<>();
 
     private ScheduledExecutorService scheduler;
     private static final int TICK_RATE_MS = 50; // 50ms = 20 Ticks/giây (20Hz)
@@ -70,10 +76,14 @@ public class GameLoop {
 
     /**
      * Nhận lệnh từ WebSocket Handler và đưa vào bộ nhớ đệm của Tick.
+     * Tách biệt: One-shot Action (Dash) đưa vào queue, Continuous Input đưa vào map.
      */
     public void enqueueInput(MoveCommandPacket command) {
         if (command != null && command.getPlayerId() != null) {
-            latestInputs.put(command.getPlayerId(), command);
+            if (command.isDash()) {
+                pendingActions.add(command);
+            }
+            latestContinuousInputs.put(command.getPlayerId(), command);
         }
     }
 
@@ -81,7 +91,7 @@ public class GameLoop {
      * Xóa bộ đệm input khi người chơi thoát game.
      */
     public void removePlayerInput(String playerId) {
-        latestInputs.remove(playerId);
+        latestContinuousInputs.remove(playerId);
     }
 
     /**
@@ -92,13 +102,27 @@ public class GameLoop {
             long tick = currentTick.incrementAndGet();
             float dt = TICK_RATE_MS / 1000f; // 0.05s
 
-            // 1. Simulation: Xử lý di chuyển và cập nhật timers cho tất cả người chơi
-            for (Player player : gameWorld.getAllPlayers()) {
-                MoveCommandPacket input = latestInputs.remove(player.getId());
-                movementSystem.update(player, input, dt);
+            // 1. Simulation: Xử lý các hành động đơn lẻ (Discrete Actions: DASH) trước
+            // Đảm bảo lệnh Dash không bao giờ bị ghi đè bởi packet di chuyển đến cùng tick
+            Set<String> actionProcessedPlayers = new HashSet<>();
+            while (!pendingActions.isEmpty()) {
+                MoveCommandPacket actionCmd = pendingActions.poll();
+                Player player = gameWorld.getPlayer(actionCmd.getPlayerId());
+                if (player != null) {
+                    movementSystem.update(player, actionCmd, dt);
+                    actionProcessedPlayers.add(player.getId());
+                }
             }
 
-            // 2. Snapshot: Phát sóng trạng thái cho toàn bộ Client nếu có người chơi
+            // 2. Simulation: Xử lý di chuyển liên tục (Continuous Movement) cho những người chơi còn lại
+            for (Player player : gameWorld.getAllPlayers()) {
+                if (!actionProcessedPlayers.contains(player.getId())) {
+                    MoveCommandPacket continuousInput = latestContinuousInputs.get(player.getId());
+                    movementSystem.update(player, continuousInput, dt);
+                }
+            }
+
+            // 3. Snapshot: Phát sóng trạng thái cho toàn bộ Client nếu có người chơi
             if (gameWorld.getPlayerCount() > 0) {
                 broadcastSnapshot(tick);
             }
