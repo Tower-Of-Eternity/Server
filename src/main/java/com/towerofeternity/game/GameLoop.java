@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * [Game Layer] Trái tim của Game Server: 20Hz Game Loop (Vòng lặp mô phỏng thế giới).
  * Mỗi 50ms chạy đúng 1 lần:
- * 1. Xử lý các hành động đơn lẻ (Discrete Actions: Dash, Jump) từ hàng đợi pendingActions (không bị ghi đè).
+ * 1. Xử lý các hành động đơn lẻ (Discrete Actions: Dash) từ hàng đợi pendingActions (không bị ghi đè).
  * 2. Cập nhật Continuous Input (WASD) từ latestContinuousInputs.
  * 3. Chụp và phát sóng trạng thái toàn cảnh thế giới (Broadcast World Snapshot).
  */
@@ -79,12 +79,16 @@ public class GameLoop {
      * Tách biệt: One-shot Action (Dash) đưa vào queue, Continuous Input đưa vào map.
      */
     public void enqueueInput(MoveCommandPacket command) {
-        if (command != null && command.getPlayerId() != null) {
-            if (command.isDash()) {
-                pendingActions.add(command);
-            }
-            latestContinuousInputs.put(command.getPlayerId(), command);
+        if (command == null || command.getPlayerId() == null) {
+            return;
         }
+
+        if (command.isDash()) {
+            pendingActions.add(command);
+            return; // Dash là one-shot action, không ghi đè vào continuous movement state
+        }
+
+        latestContinuousInputs.put(command.getPlayerId(), command);
     }
 
     /**
