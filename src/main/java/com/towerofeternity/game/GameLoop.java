@@ -30,13 +30,18 @@ import java.util.concurrent.atomic.AtomicLong;
  * [Game Layer] Trái tim của Game Server: 20Hz Game Loop (Vòng lặp mô phỏng thế giới).
  * Mỗi 50ms chạy đúng 1 lần:
  * 1. Xử lý các hành động đơn lẻ (Discrete Actions: Dash) từ hàng đợi pendingActions (không bị ghi đè).
- * 2. Cập nhật Continuous Input (WASD) từ latestContinuousInputs.
+ * 2. Cập nhật Continuous Input (WASD) từ latestContinuousInputs kèm receivedAt để kiểm tra timeout.
  * 3. Chụp và phát sóng trạng thái toàn cảnh thế giới (Broadcast World Snapshot).
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class GameLoop {
+
+    /**
+     * Lưu trữ lệnh di chuyển liên tục kèm thời điểm thực tế nhận được từ network.
+     */
+    public record ContinuousInputState(MoveCommandPacket command, long receivedAt) {}
 
     private final GameWorld gameWorld;
     private final MovementSystem movementSystem;
@@ -47,8 +52,8 @@ public class GameLoop {
 
     private final AtomicLong currentTick = new AtomicLong(0);
 
-    // Tách riêng luồng Continuous Input và Discrete Actions
-    private final Map<String, MoveCommandPacket> latestContinuousInputs = new ConcurrentHashMap<>();
+    // Tách riêng luồng Continuous Input (kèm timestamp) và Discrete Actions
+    private final Map<String, ContinuousInputState> latestContinuousInputs = new ConcurrentHashMap<>();
     private final ConcurrentLinkedQueue<MoveCommandPacket> pendingActions = new ConcurrentLinkedQueue<>();
 
     private ScheduledExecutorService scheduler;
@@ -76,7 +81,7 @@ public class GameLoop {
 
     /**
      * Nhận lệnh từ WebSocket Handler và đưa vào bộ nhớ đệm của Tick.
-     * Tách biệt: One-shot Action (Dash) đưa vào queue, Continuous Input đưa vào map.
+     * Tách biệt: One-shot Action (Dash) đưa vào queue, Continuous Input đưa vào map kèm receivedAt.
      */
     public void enqueueInput(MoveCommandPacket command) {
         if (command == null || command.getPlayerId() == null) {
@@ -88,7 +93,11 @@ public class GameLoop {
             return; // Dash là one-shot action, không ghi đè vào continuous movement state
         }
 
-        latestContinuousInputs.put(command.getPlayerId(), command);
+        // Lưu command kèm thời điểm nhận packet thực sự để phục vụ kiểm tra Timeout chính xác
+        latestContinuousInputs.put(
+            command.getPlayerId(), 
+            new ContinuousInputState(command, System.currentTimeMillis())
+        );
     }
 
     /**
@@ -107,13 +116,12 @@ public class GameLoop {
             float dt = TICK_RATE_MS / 1000f; // 0.05s
 
             // 1. Simulation: Xử lý các hành động đơn lẻ (Discrete Actions: DASH) trước
-            // Đảm bảo lệnh Dash không bao giờ bị ghi đè bởi packet di chuyển đến cùng tick
             Set<String> actionProcessedPlayers = new HashSet<>();
             while (!pendingActions.isEmpty()) {
                 MoveCommandPacket actionCmd = pendingActions.poll();
                 Player player = gameWorld.getPlayer(actionCmd.getPlayerId());
                 if (player != null) {
-                    movementSystem.update(player, actionCmd, dt);
+                    movementSystem.update(player, actionCmd, System.currentTimeMillis(), dt);
                     actionProcessedPlayers.add(player.getId());
                 }
             }
@@ -121,8 +129,10 @@ public class GameLoop {
             // 2. Simulation: Xử lý di chuyển liên tục (Continuous Movement) cho những người chơi còn lại
             for (Player player : gameWorld.getAllPlayers()) {
                 if (!actionProcessedPlayers.contains(player.getId())) {
-                    MoveCommandPacket continuousInput = latestContinuousInputs.get(player.getId());
-                    movementSystem.update(player, continuousInput, dt);
+                    ContinuousInputState inputState = latestContinuousInputs.get(player.getId());
+                    MoveCommandPacket continuousInput = (inputState != null) ? inputState.command() : null;
+                    long receivedAt = (inputState != null) ? inputState.receivedAt() : 0L;
+                    movementSystem.update(player, continuousInput, receivedAt, dt);
                 }
             }
 
