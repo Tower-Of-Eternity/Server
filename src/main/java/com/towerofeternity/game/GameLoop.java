@@ -92,12 +92,10 @@ public class GameLoop {
             long tick = currentTick.incrementAndGet();
             float dt = TICK_RATE_MS / 1000f; // 0.05s
 
-            // 1. Simulation: Xử lý di chuyển cho tất cả người chơi
+            // 1. Simulation: Xử lý di chuyển và cập nhật timers cho tất cả người chơi
             for (Player player : gameWorld.getAllPlayers()) {
-                MoveCommandPacket input = latestInputs.get(player.getId());
-                if (input != null) {
-                    movementSystem.processMovement(player, input, dt);
-                }
+                MoveCommandPacket input = latestInputs.remove(player.getId());
+                movementSystem.update(player, input, dt);
             }
 
             // 2. Snapshot: Phát sóng trạng thái cho toàn bộ Client nếu có người chơi
