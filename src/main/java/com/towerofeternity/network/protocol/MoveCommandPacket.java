@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 public class MoveCommandPacket {
     private String playerId; // Server gán từ Session ID
     private String type;
+    private long sequenceNumber; // Số thứ tự gói tin để Client theo dõi ACK
     private float dirX;
     private float dirY;
     private boolean isSprint;

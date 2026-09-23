@@ -119,6 +119,7 @@ public class GameLoop {
                         .x(p.getX())
                         .y(p.getY())
                         .state(p.getState())
+                        .ackSequence(p.getLastProcessedSequence())
                         .build());
             }
 

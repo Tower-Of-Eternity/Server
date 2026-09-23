@@ -32,5 +32,6 @@ public class WorldSnapshotPacket {
         private float x;
         private float y;
         private String state;
+        private long ackSequence; // Số thứ tự input cuối cùng mà Server đã xử lý
     }
 }
