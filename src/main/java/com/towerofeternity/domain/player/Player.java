@@ -20,9 +20,6 @@ public class Player {
     
     @Builder.Default
     private String state = "IDLE";
-    
-    @Builder.Default
-    private long lastActiveTime = System.currentTimeMillis();
 
     // --- Continuous Movement State (Duy trì di chuyển liên tục, chống giật do lag/jitter) ---
     @Builder.Default

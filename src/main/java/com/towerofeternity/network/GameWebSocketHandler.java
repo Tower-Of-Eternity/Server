@@ -43,7 +43,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler implements Snapsh
                 .x(0f)
                 .y(0f)
                 .state("IDLE")
-                .lastActiveTime(System.currentTimeMillis())
                 .build();
 
         gameWorld.addPlayer(newPlayer);
