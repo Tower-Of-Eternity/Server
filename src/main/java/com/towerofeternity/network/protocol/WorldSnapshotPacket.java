@@ -32,6 +32,9 @@ public class WorldSnapshotPacket {
         private float x;
         private float y;
         private String state;
-        private long ackSequence; // Số thứ tự input cuối cùng mà Server đã xử lý
+
+        // Sequence của input mới nhất mà Server đã nhìn thấy/áp dụng (Latest Applied Sequence).
+        // Đây KHÔNG PHẢI là cumulative ACK của mọi input trước đó nếu có packet bị drop/skip giữa chừng.
+        private long ackSequence;
     }
 }
